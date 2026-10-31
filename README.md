@@ -39,3 +39,21 @@ The in-memory index is built automatically at application startup using a FastAP
 
 **Index Refresh Strategy:**
 Currently, the index loads only once at startup. To support new posts created by users in the future, the application will need a refresh mechanism. This could be achieved by either dynamically appending the new post's embedding to the in-memory `app_state["corpus_embeddings"]` matrix upon a successful `POST /posts/` request, or by scheduling a background task to rebuild the entire index periodically without blocking the main event loop.
+
+## Feed Algorithm & Complexity
+
+### Feed Strategy & Signals
+The `GET /feed` endpoint provides a personalized `for_you` strategy using three ranking signals:
+- **Freshness**: Uses an inverse decay formula `1.0 / (1.0 + (age_seconds / 3600.0))` to slightly favor newer posts.
+- **Affinity**: Yields `1.0` if the post author is in the user's `followed_authors` set, otherwise `0.0`.
+- **Popularity**: Evaluates `post_likes / max_global_likes` to boost globally appreciated content.
+- **Default Weights**: `{freshness: 1.0, affinity: 2.0, popularity: 1.0}`.
+
+### Candidates & Cold Start
+- **Candidates**: The feed considers all posts from the database *except* the user's own posts and the posts the user has already liked.
+- **Cold Start**: A user who follows nobody will have an empty affinity set. Their feed will naturally fall back to being ranked entirely by a combination of `freshness` and `popularity`, effectively acting as a "Trending" or "Latest Hits" feed.
+
+### Complexity Note
+The Big-O time complexity of a single `GET /feed` request is **`O(C log k)`**, where `C` is the number of valid candidate posts evaluated and `k` is the requested limit. This is achieved by using a min-heap (`heapq.nsmallest`) to strictly maintain only the top `k` items in memory during the scoring loop. 
+
+**Optimization Strategy**: To improve performance at scale, I would precalculate the `freshness` and `popularity` scores asynchronously in a background job (or store them as materialized views), since these two signals are identical for all users. The API would then only need to calculate the personalized `affinity` dynamically at request time.

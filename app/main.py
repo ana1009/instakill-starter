@@ -1,11 +1,12 @@
 import sqlite3
 import numpy as np
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 
 from app.db.database import init_db
 from app.adapters.encoder import encoder
 from app.services.search_service import semantic_search
+from app.services.feed_service import build_feed
 
 app_state = {
     "posts": [],
@@ -69,3 +70,18 @@ def search_posts(q: str = Query(..., min_length=1), limit: int = Query(5, ge=1, 
         "query": q,
         "results": results
     }
+
+
+@app.get("/feed")
+def get_feed(
+        user_id: int,
+        limit: int = Query(20, ge=1, le=50),
+        strategy: str = Query("for_you", pattern="^(for_you|chronological)$")
+):
+    """Generates the feed for a specific user."""
+    feed_response = build_feed(user_id, limit, strategy)
+
+    if feed_response is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return feed_response
